@@ -60,7 +60,7 @@ func NewBalancer[T any, R Registry[T]](
 	return b, nil
 }
 
-func (b *Balancer[T, R]) Next() (*SrvInst[T], error) {
+func (b *Balancer[T, R]) Next() (SrvInst[T], error) {
 	cur := b.idx.Add(1) - 1
 
 	b.mu.RLock()
@@ -75,7 +75,7 @@ func (b *Balancer[T, R]) Next() (*SrvInst[T], error) {
 	// Return a copy instead of a pointer to avoid external modification.
 	inst := b.instLst[cur%instLen]
 
-	return &inst, nil
+	return inst, nil
 }
 
 func (b *Balancer[T, R]) RefreshInst(serviceName string) error {
