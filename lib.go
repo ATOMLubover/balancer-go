@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -22,8 +23,9 @@ type SrvInst[T any] struct {
 type Balancer[T any, R Registry[T]] struct {
 	idx atomic.Uint32
 
-	mu      sync.RWMutex
-	instLst []SrvInst[T]
+	mu       sync.RWMutex
+	isClosed bool
+	instLst  []SrvInst[T]
 
 	pref string
 	reg  R
@@ -46,9 +48,10 @@ func NewBalancer[T any, R Registry[T]](
 	}
 
 	b := &Balancer[T, R]{
-		pref:   srvPref,
-		reg:    reg,
-		stopCh: make(chan struct{}),
+		pref:     srvPref,
+		isClosed: false,
+		reg:      reg,
+		stopCh:   make(chan struct{}),
 	}
 
 	if err := b.RefreshInst(srvPref); err != nil {
@@ -119,10 +122,28 @@ func (b *Balancer[T, R]) runRefresh(intrvSec int) {
 	}()
 }
 
-func (b *Balancer[T, R]) Stop() {
+func (b *Balancer[T, R]) Close() error {
+	if b.isClosed {
+		return nil
+	}
+
+	b.mu.Lock()
+
+	defer b.mu.Unlock()
+
+	b.isClosed = true
+
 	close(b.stopCh)
 
 	if b.ticker != nil {
 		b.ticker.Stop()
 	}
+
+	err := b.reg.Close()
+
+	if err != nil {
+		return fmt.Errorf("failed to close registry: %v", err)
+	}
+
+	return nil
 }
