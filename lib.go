@@ -1,62 +1,66 @@
 package balancer
 
 import (
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-type Instance struct {
+type SrvInst[T any] struct {
 	SrvID   string
 	SrvName string
 	Addr    string
 	Port    uint16
+
+	// Placeholder to store some data
+	// that should not be constructed every time
+	// when getting an instance.
+	Store T
 }
 
-type Balancer struct {
+type Balancer[T any, R Registry[T]] struct {
 	idx atomic.Uint32
 
 	mu      sync.RWMutex
-	instLst []Instance
+	instLst []SrvInst[T]
 
 	pref string
-	reg  Registry
+	reg  R
 
 	stopCh chan struct{}
 	ticker *time.Ticker
 }
 
-func NewBalancer[R Registry](
+func NewBalancer[T any, R Registry[T]](
 	reg R,
 	srvPref string,
-	interSec int,
-) (*Balancer, error) {
+	intrvSec int,
+) (*Balancer[T, R], error) {
 	if srvPref == "" {
-		return nil, fmt.Errorf("service prefix cannot be empty")
+		return nil, ErrNoEmptySrvPref
 	}
 
-	if interSec <= 0 {
-		return nil, fmt.Errorf("refresh interval must be positive")
+	if intrvSec <= 0 {
+		return nil, ErrRefreshIntrvNonPstv
 	}
 
-	b := &Balancer{
+	b := &Balancer[T, R]{
 		pref:   srvPref,
 		reg:    reg,
 		stopCh: make(chan struct{}),
 	}
 
 	if err := b.RefreshInst(srvPref); err != nil {
-		return nil, fmt.Errorf("failed to initialize balancer: %v", err)
+		return nil, newErrPullInstFailure(err)
 	}
 
-	b.runRefresh(interSec)
+	b.runRefresh(intrvSec)
 
 	return b, nil
 }
 
-func (b *Balancer) Next() (*Instance, error) {
+func (b *Balancer[T, R]) Next() (*SrvInst[T], error) {
 	cur := b.idx.Add(1) - 1
 
 	b.mu.RLock()
@@ -74,12 +78,12 @@ func (b *Balancer) Next() (*Instance, error) {
 	return &inst, nil
 }
 
-func (b *Balancer) RefreshInst(serviceName string) error {
-	insts, err := b.reg.PullInstances(serviceName)
+func (b *Balancer[T, R]) RefreshInst(serviceName string) error {
+	insts, err := b.reg.PullInst(serviceName)
 
 	if err != nil {
 		slog.Error("failed to pull instances", "error", err)
-		return fmt.Errorf("failed to pull instances: %v", err)
+		return newErrPullInstFailure(err)
 	}
 
 	// Short critical section.
@@ -94,8 +98,8 @@ func (b *Balancer) RefreshInst(serviceName string) error {
 	return nil
 }
 
-func (b *Balancer) runRefresh(interSec int) {
-	b.ticker = time.NewTicker(time.Duration(interSec) * time.Second)
+func (b *Balancer[T, R]) runRefresh(intrvSec int) {
+	b.ticker = time.NewTicker(time.Duration(intrvSec) * time.Second)
 
 	go func() {
 		defer b.ticker.Stop()
@@ -115,7 +119,7 @@ func (b *Balancer) runRefresh(interSec int) {
 	}()
 }
 
-func (b *Balancer) Stop() {
+func (b *Balancer[T, R]) Stop() {
 	close(b.stopCh)
 
 	if b.ticker != nil {

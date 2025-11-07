@@ -1,5 +1,5 @@
 package balancer
 
-type Registry interface {
-	PullInstances(serviceName string) ([]Instance, error)
+type Registry[T any] interface {
+	PullInst(srvPref string) ([]SrvInst[T], error)
 }
