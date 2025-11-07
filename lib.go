@@ -69,7 +69,7 @@ func (b *Balancer[T, R]) Next() (SrvInst[T], error) {
 	instLen := uint32(len(b.instLst))
 
 	if instLen == 0 {
-		return nil, ErrNoAvailableInst
+		return SrvInst[T]{}, ErrNoAvailableInst
 	}
 
 	// Return a copy instead of a pointer to avoid external modification.
